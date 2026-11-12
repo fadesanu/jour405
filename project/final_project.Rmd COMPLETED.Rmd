@@ -1,0 +1,53 @@
+
+---
+title: "Campus Police Presence and Crime Rates"
+author: Farooq Adesanu
+output: html_document
+---
+
+# Research Question
+
+Does having more police officers on college campuses lead to lower reported crime rates?
+
+# Project Background
+
+For my final project, I want to examine whether the number of police officers at a college or university is related to the amount of crime reported on campus.
+
+I am interested in this topic because campus safety is important, and universities have different levels of police presence. I want to see whether colleges with more campus police officers tend to have lower reported crime rates.
+
+# Research Hypothesis
+
+My hypothesis is that colleges with more campus police officers per student will have lower reported violent crime rates than colleges with fewer officers per student.
+
+# Data Sources
+
+I plan to use two main sources:
+
+1. The U.S. Department of Education's Campus Safety and Security data.
+   https://ope.ed.gov/campussafety/
+
+2. The Bureau of Justice Statistics' Survey of Campus Law Enforcement Agencies.
+   https://bjs.ojp.gov/
+
+# Data Exploration
+
+I will load and examine my datasets in this section.
+
+# Important Variables
+
+I plan to examine the number of campus police officers, reported violent crimes, student enrollment, institution identification numbers, and reporting years.
+
+# Missing Information and Limitations
+
+I will examine missing values and determine whether both datasets contain information for the same colleges and reporting periods.
+
+# Questions
+
+1. can I match both datasets using institution identification numbers?
+2. should I focus on violent crime or all reported crimes?
+3. should I calculate officers per 1,000 students?
+4. how should I handle missing information?
+
+# Next Steps
+
+My next step is to download both datasets, load them into RStudio, and examine their columns and time periods.
