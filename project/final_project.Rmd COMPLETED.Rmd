@@ -5,6 +5,42 @@ author: Farooq Adesanu
 output: html_document
 ---
 
+# Planned Statistical Analyses
+
+For my final project, I want to find out if four year colleges with more campus police officers per 1,000 students tend to have lower reported violent crime rates. Based on the assignments and statistical tests we have done in JOUR405, I think there are several ways I can analyze my data.
+
+**1. Descriptive Statistics**
+
+so first, I will calculate the mean, median, standard deviation, minimum, and maximum for police officers per 1,000 students and violent crime rates per 1,000 students. This will help me understand the data and see how much police presence and crime rates differ between colleges.
+
+**2. Data Visualizations**
+
+I then plan to create histograms to see how police presence and crime rates are distributed. but i  will also use boxplots to look for unusual values and see if some colleges have much higher or lower numbers than others. This will help me get a better understanding of the data before running any tests.
+
+**3. Scatterplots and Correlation**
+
+I will create a scatterplot comparing police officers per 1,000 students with violent crimes per 1,000 students. I will also calculate a correlation to see if there is a relationship between the two variables. and i expect the relationship to be negative because my hypothesis is that colleges with more officers will have lower violent crime rates. I will look at the correlation and pvalue to see how strong the relationship is and whether it is statistically significant.
+
+**4. Linear Regression**
+
+I would also like to use linear regression to see if the number of police officers per 1,000 students can help predict violent crime rates. I will look at the slope, R-squared value, and p-value to understand the results. This could help me see how much crime rates change as police presence increases.
+
+**5. Confidence Intervals**
+
+I may calculate confidence intervals for the average police presence and violent crime rates. This would help me understand the possible range of values around the averages and how much the results could vary.
+
+**6. Comparing Different Years**
+
+If the dataset has information from multiple years, I would like to compare police presence and crime rates over time. I could calculate yearly averages and create line graphs to see if there are any changes or patterns. I am not sure if I will have enough information to do this, but I think it could be useful.
+
+**7. Missing Data and Limitations**
+
+Before running my analyses, I will check for missing values and outliers. I will also make sure I am comparing colleges from the same reporting year. One thing to keep in mind is that reported crime does not always show the actual amount of crime on campus. Colleges with more officers might report more crimes because they are able to identify more incidents. Other factors, such as campus size and location, could also affect crime rates.
+
+I think descriptive statistics, visualizations, correlation, and linear regression will be the most useful for my project. I may also use confidence intervals and compare different years depending on what information I find in the dataset. I will make changes to my analyses if needed once I start exploring the data.
+
+---- 
+
 # Research Question
 
 Does having more police officers on college campuses lead to lower reported crime rates?
