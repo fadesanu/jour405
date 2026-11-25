@@ -1,0 +1,410 @@
+---
+title: "Campus Police Presence and Crime Rates"
+author: "Farooq Adesanu"
+output: html_document
+---
+
+# Introduction
+
+For my final project, I want to see if colleges with more campus police officers per 1,000 students also have lower reported violent crime rates. I chose this topic because campus safety is important, and colleges do not all have the same amount of police presence.
+
+My hypothesis is that colleges with more campus police officers per 1,000 students will have lower reported violent crime rates per 1,000 students.
+
+# Data sources
+
+I am using two datasets. The first is the Bureau of Justice Statistics (BJS) Survey of Campus Law Enforcement Agencies for 2021-2022. It includes information about campus law enforcement agencies, enrollment, and officers.
+
+The second dataset is from the U.S. Department of Education's Campus Safety and Security data. The ZIP file I downloaded is named `Crime2021EXCEL.zip`, but its ReadMe says the spreadsheets contain crime data for 2018, 2019, and 2020. I am using the 2020 crime information because it is the most recent year in that file.
+
+The two datasets do not cover the same time period. The BJS survey is from 2021-2022, while the crime data is from 2020. I will keep this in mind when explaining my results. The results cannot show that police staffing caused crime to go up or down.
+
+# 1. Load packages and import the data
+
+```{r setup-data, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(haven)
+library(readxl)
+
+# Check that R can find the two files
+file.exists("data/sclea_2021_2022.sav")
+file.exists("data/oncampuscrime181920.xls")
+
+# Import the files
+bjs_raw <- read_sav("data/sclea_2021_2022.sav")
+crime_raw <- read_excel("data/oncampuscrime181920.xls")
+
+# Check the size of each dataset
+dim(bjs_raw)
+dim(crime_raw)
+
+# Look at the column names
+names(bjs_raw)
+names(crime_raw)
+
+# Look at the first few rows
+head(bjs_raw)
+head(crime_raw)
+
+file.exists("data/sclea_2021_2022.sav")
+file.exists("data/oncampuscrime181920.xls")
+
+dim(bjs_raw)
+dim(crime_raw)
+```
+
+# 2. Check the variables and missing information
+
+I first checked whether the columns I need are in each dataset. I also checked how much information is missing from some of the main variables.
+
+```{r check-variables}
+# Check the BJS variables
+c("IPEDS_ID", "ENROLLMENT", "INST2_4YR", "SW_FT_OFFICER",
+  "SW_PT_OFFICER", "SWORN_NA") %in% names(bjs_raw)
+
+# Check the crime variables
+c("UNITID_P", "MURD20", "RAPE20", "ROBBE20", "AGG_A20") %in% names(crime_raw)
+
+# Count missing values in the BJS data
+bjs_raw %>%
+  summarise(
+    total_records = n(),
+    missing_ipeds_id = sum(is.na(IPEDS_ID)),
+    missing_enrollment = sum(is.na(ENROLLMENT))
+  )
+
+# Count missing values in the crime data
+crime_raw %>%
+  summarise(
+    total_records = n(),
+    missing_campus_id = sum(is.na(UNITID_P)),
+    missing_murder = sum(is.na(MURD20)),
+    missing_rape = sum(is.na(RAPE20)),
+    missing_robbery = sum(is.na(ROBBE20)),
+    missing_aggravated_assault = sum(is.na(AGG_A20))
+  )
+colSums(is.na(crime_raw[c("MURD20", "RAPE20", "ROBBE20", "AGG_A20")]))
+```
+
+# 3. Prepare the BJS staffing data
+
+I am focusing on four-year colleges. I added the full-time and part-time sworn officers to get a total number of sworn officers. The BJS codebook explains that -9 means unavailable, -8 means don't know, and -2 means not applicable. I only treat the not-applicable answer as zero when `SWORN_NA` shows that sworn officers do not apply. Unknown and unavailable values stay missing.
+
+```{r prepare-bjs}
+bjs_clean <- bjs_raw %>%
+  mutate(
+    IPEDS_ID = as.character(as.integer(IPEDS_ID)),
+    ENROLLMENT = as.numeric(ENROLLMENT),
+    INST2_4YR = as.numeric(INST2_4YR),
+    SWORN_NA = as.numeric(SWORN_NA),
+    SW_FT_OFFICER = as.numeric(SW_FT_OFFICER),
+    SW_PT_OFFICER = as.numeric(SW_PT_OFFICER),
+    full_time_sworn = ifelse(!is.na(SWORN_NA) & SWORN_NA == 1, 0, SW_FT_OFFICER),
+    part_time_sworn = ifelse(!is.na(SWORN_NA) & SWORN_NA == 1, 0, SW_PT_OFFICER),
+    full_time_sworn = ifelse(full_time_sworn < 0, NA, full_time_sworn),
+    part_time_sworn = ifelse(part_time_sworn < 0, NA, part_time_sworn),
+    total_sworn_officers = full_time_sworn + part_time_sworn
+  ) %>%
+  filter(INST2_4YR == 0, !is.na(IPEDS_ID), !is.na(ENROLLMENT), ENROLLMENT > 0)
+
+# Number of four-year records
+nrow(bjs_clean)
+
+# Summary of officers and enrollment
+summary(bjs_clean$total_sworn_officers)
+summary(bjs_clean$ENROLLMENT)
+
+# Check for institution IDs that appear more than once
+bjs_clean %>%
+  count(IPEDS_ID) %>%
+  filter(n > 1)
+
+bjs_clean %>%
+  summarise(
+    total_records = n(),
+    missing_ipeds_id = sum(is.na(IPEDS_ID)),
+    missing_enrollment = sum(is.na(ENROLLMENT))
+  )
+```
+
+The duplicate check is important because I want each college to be represented correctly. I found two IDs that appeared twice in my first check: 196130 and 236939. I need to look at those records before deciding whether they represent separate agencies or duplicate information. I will not remove or combine them without checking.
+
+```{r inspect-duplicates}
+bjs_clean %>%
+  filter(IPEDS_ID == "196130" | IPEDS_ID == "236939") %>%
+  select(IPEDS_ID, ENROLLMENT, SW_FT_OFFICER, SW_PT_OFFICER,
+         SWORN_NA, total_sworn_officers)
+```
+
+# 4. Prepare the 2020 crime data
+
+The crime file has separate records for campuses and branches. I use the first six digits of the campus ID to make an institution ID that can be matched with the BJS data. I add murder and nonnegligent manslaughter, rape, robbery, and aggravated assault to create the violent crime count.
+
+```{r prepare-crime}
+crime_clean <- crime_raw %>%
+  mutate(
+    IPEDS_ID = substr(as.character(as.integer(UNITID_P)), 1, 6),
+    MURD20 = as.numeric(MURD20),
+    RAPE20 = as.numeric(RAPE20),
+    ROBBE20 = as.numeric(ROBBE20),
+    AGG_A20 = as.numeric(AGG_A20),
+    violent_crime_2020 = MURD20 + RAPE20 + ROBBE20 + AGG_A20
+  )
+
+# Add campus and branch crime counts for each institution
+crime_by_school <- crime_clean %>%
+  filter(!is.na(IPEDS_ID)) %>%
+  group_by(IPEDS_ID) %>%
+  summarise(
+    violent_crime_2020 = sum(violent_crime_2020, na.rm = TRUE),
+    campus_records = n(),
+    .groups = "drop"
+  )
+
+# Check the number of institutions and crime counts
+nrow(crime_by_school)
+summary(crime_by_school$violent_crime_2020)
+head(crime_by_school)
+
+# Check how many institution totals are missing
+sum(is.na(crime_by_school$violent_crime_2020))
+```
+
+# 5. Match the datasets and calculate rates
+
+I match the datasets using the institution ID. I calculate both measures per 1,000 students because colleges have different enrollment sizes.
+
+```{r join-data}
+analysis_data <- bjs_clean %>%
+  select(IPEDS_ID, ENROLLMENT, total_sworn_officers) %>%
+  left_join(crime_by_school, by = "IPEDS_ID") %>%
+  mutate(
+    officers_per_1000 = total_sworn_officers / ENROLLMENT * 1000,
+    violent_crime_per_1000 = violent_crime_2020 / ENROLLMENT * 1000
+  )
+
+# Check how many records matched and have both rates
+analysis_data %>%
+  summarise(
+    bjs_four_year_records = n(),
+    matched_crime_records = sum(!is.na(violent_crime_2020)),
+    usable_for_analysis = sum(
+      !is.na(officers_per_1000) & !is.na(violent_crime_per_1000)
+    )
+  )
+
+# Keep records that have both rates
+analysis_ready <- analysis_data %>%
+  filter(
+    !is.na(officers_per_1000),
+    !is.na(violent_crime_per_1000)
+  )
+
+nrow(analysis_ready)
+head(analysis_ready)
+```
+
+Before treating these rows as separate colleges, I need to review the duplicate BJS IDs shown above. The results from this section describe the records that matched; duplicate IDs may mean that some records represent more than one agency for the same institution.
+
+# 6. Descriptive statistics
+
+I use descriptive statistics to get a general idea of the officer rates and crime rates in the data.
+
+```{r descriptive-statistics}
+analysis_ready %>%
+  summarise(
+    number_of_records = n(),
+    average_officers_per_1000 = mean(officers_per_1000, na.rm = TRUE),
+    median_officers_per_1000 = median(officers_per_1000, na.rm = TRUE),
+    sd_officers_per_1000 = sd(officers_per_1000, na.rm = TRUE),
+    average_crime_per_1000 = mean(violent_crime_per_1000, na.rm = TRUE),
+    median_crime_per_1000 = median(violent_crime_per_1000, na.rm = TRUE),
+    sd_crime_per_1000 = sd(violent_crime_per_1000, na.rm = TRUE)
+  )
+```
+
+# 7. Graphs
+
+I use histograms to see how the two rates are spread out. I also use boxplots to check whether there are any unusually high or low values.
+
+```{r histograms}
+ggplot(analysis_ready, aes(x = officers_per_1000)) +
+  geom_histogram(bins = 20) +
+  labs(
+    title = "Campus Officers per 1,000 Students",
+    x = "Officers per 1,000 students",
+    y = "Number of records"
+  )
+
+ggplot(analysis_ready, aes(x = violent_crime_per_1000)) +
+  geom_histogram(bins = 20) +
+  labs(
+    title = "Reported Violent Crimes per 1,000 Students",
+    x = "Violent crimes per 1,000 students",
+    y = "Number of records"
+  )
+```
+
+```{r boxplots}
+ggplot(analysis_ready, aes(y = officers_per_1000)) +
+  geom_boxplot() +
+  labs(
+    title = "Campus Officers per 1,000 Students",
+    y = "Officers per 1,000 students"
+  )
+
+ggplot(analysis_ready, aes(y = violent_crime_per_1000)) +
+  geom_boxplot() +
+  labs(
+    title = "Reported Violent Crimes per 1,000 Students",
+    y = "Violent crimes per 1,000 students"
+  )
+```
+
+# 8. Scatterplot and correlation
+
+I use a scatterplot and correlation test to see whether officer rates and crime rates move together. A negative correlation would mean that higher officer rates tend to go with lower crime rates. A positive correlation would mean that higher officer rates tend to go with higher crime rates.
+
+```{r correlation}
+ggplot(analysis_ready, aes(x = officers_per_1000, y = violent_crime_per_1000)) +
+  geom_point() +
+  labs(
+    title = "Campus Police Presence and Reported Violent Crime",
+    x = "Officers per 1,000 students",
+    y = "Violent crimes per 1,000 students"
+  )
+
+cor.test(analysis_ready$officers_per_1000,
+         analysis_ready$violent_crime_per_1000)
+```
+
+# 9. Linear regression
+
+I use linear regression to see whether the officer rate is related to the violent crime rate. The slope shows the direction of the relationship. The R-squared value shows how much of the variation in the crime rate is explained by this model. This test does not prove that police staffing causes crime to change.
+
+```{r regression}
+crime_model <- lm(violent_crime_per_1000 ~ officers_per_1000,
+                  data = analysis_ready)
+
+summary(crime_model)
+confint(crime_model)
+```
+
+# 10. What the results mean
+
+After I run the descriptive statistics, graphs, correlation, and regression, I will explain what the results show here. I will use the actual output from RStudio and will not assume that my hypothesis is correct before looking at the results.
+
+# 11. Limitations
+
+There are a few limitations to this project. First, the staffing data is from 2021-2022, but the crime data is from 2020. Second, I am only looking at reported on-campus violent crime. This does not include every crime that may have happened. Colleges may also differ in how they report crime. Other things, such as campus location, enrollment, and security policies, could affect crime rates. lasly, I need to make sure the duplicate institution IDs in the BJS data are handled correctly before making conclusions about colleges.
+
+# 12. Errors and troubleshooting
+
+I will record errors that actually happen while running the code. I will include the exact message, what I think it means, and what I tried to fix it. I will not add errors that did not happen.
+
+| Exact error message | What I think it means | What I tried |
+|---|---|---|
+| Add an error here only if one occurs. | Explain it in my own words. | Describe the fix I tried. |
+
+## 12. Troubleshooting
+
+### Data Checks and Issues Encountered
+
+| Issue | What happened | What it means |
+|---|---|---|
+| Missing output | I ran my code but did not see some of the results I expected. | I needed to run the commands again in the Console to display the results. |
+| Duplicate IPEDS IDs | IDs `196130` and `236939` each appeared twice. | These records need to be reviewed because duplicate IDs could affect the dataset join. |
+| Missing-value checks | I checked for missing values in both datasets. | The BJS data had 2 missing IPEDS IDs, while enrollment and the four crime variables had no missing values. |
+
+Actual R Errors
+
+No actual R error messages have been encountered during the code reviewed so far. I will document any errors that occur as I continue working on the project, including the exact error message, what I think it means, and what I tried to fix it.
+# 13. AI assistance
+
+I used ChatGPT to help me understand the datasets, talk through what the variables mean, and understand some of the R output. I ran the code in RStudio and checked the results myself. I am including the share link to the ChatGPT conversation below, as required for the assignment.
+
+**ChatGPT share link:** https://chatgpt.com/share/6b0741b6-dd48-83e9-a324-312597591570
+
+-- 
+# Planned Statistical Analyses
+
+For my final project, I want to find out if four year colleges with more campus police officers per 1,000 students tend to have lower reported violent crime rates. Based on the assignments and statistical tests we have done in JOUR405, I think there are several ways I can analyze my data.
+
+**1. Descriptive Statistics**
+
+so first, I will calculate the mean, median, standard deviation, minimum, and maximum for police officers per 1,000 students and violent crime rates per 1,000 students. This will help me understand the data and see how much police presence and crime rates differ between colleges.
+
+**2. Data Visualizations**
+
+I then plan to create histograms to see how police presence and crime rates are distributed. but i  will also use boxplots to look for unusual values and see if some colleges have much higher or lower numbers than others. This will help me get a better understanding of the data before running any tests.
+
+**3. Scatterplots and Correlation**
+
+I will create a scatterplot comparing police officers per 1,000 students with violent crimes per 1,000 students. I will also calculate a correlation to see if there is a relationship between the two variables. and i expect the relationship to be negative because my hypothesis is that colleges with more officers will have lower violent crime rates. I will look at the correlation and pvalue to see how strong the relationship is and whether it is statistically significant.
+
+**4. Linear Regression**
+
+I would also like to use linear regression to see if the number of police officers per 1,000 students can help predict violent crime rates. I will look at the slope, R-squared value, and p-value to understand the results. This could help me see how much crime rates change as police presence increases.
+
+**5. Confidence Intervals**
+
+I may calculate confidence intervals for the average police presence and violent crime rates. This would help me understand the possible range of values around the averages and how much the results could vary.
+
+**6. Comparing Different Years**
+
+If the dataset has information from multiple years, I would like to compare police presence and crime rates over time. I could calculate yearly averages and create line graphs to see if there are any changes or patterns. I am not sure if I will have enough information to do this, but I think it could be useful.
+
+**7. Missing Data and Limitations**
+
+Before running my analyses, I will check for missing values and outliers. I will also make sure I am comparing colleges from the same reporting year. One thing to keep in mind is that reported crime does not always show the actual amount of crime on campus. Colleges with more officers might report more crimes because they are able to identify more incidents. Other factors, such as campus size and location, could also affect crime rates.
+
+I think descriptive statistics, visualizations, correlation, and linear regression will be the most useful for my project. I may also use confidence intervals and compare different years depending on what information I find in the dataset. I will make changes to my analyses if needed once I start exploring the data.
+
+---- 
+
+# Research Question
+
+Does having more police officers on college campuses lead to lower reported crime rates?
+
+# Project Background
+
+For my final project, I want to examine whether the number of police officers at a college or university is related to the amount of crime reported on campus.
+
+I am interested in this topic because campus safety is important, and universities have different levels of police presence. I want to see whether colleges with more campus police officers tend to have lower reported crime rates.
+
+# Research Hypothesis
+
+My hypothesis is that colleges with more campus police officers per student will have lower reported violent crime rates than colleges with fewer officers per student.
+
+# Data Sources
+
+I plan to use two main sources:
+
+1. The U.S. Department of Education's Campus Safety and Security data.
+   https://ope.ed.gov/campussafety/
+
+2. The Bureau of Justice Statistics' Survey of Campus Law Enforcement Agencies.
+   https://bjs.ojp.gov/
+
+# Data Exploration
+
+I will load and examine my datasets in this section.
+
+# Important Variables
+
+I plan to examine the number of campus police officers, reported violent crimes, student enrollment, institution identification numbers, and reporting years.
+
+# Missing Information and Limitations
+
+I will examine missing values and determine whether both datasets contain information for the same colleges and reporting periods.
+
+# Questions
+
+1. can I match both datasets using institution identification numbers?
+2. should I focus on violent crime or all reported crimes?
+3. should I calculate officers per 1,000 students?
+4. how should I handle missing information?
+
+# Next Steps
+
+My next step is to download both datasets, load them into RStudio, and examine their columns and time periods.
+
